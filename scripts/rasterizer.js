@@ -17,6 +17,8 @@ defaultViewportSize = {
   height: ~~defaultViewportSize[1] || 600
 };
 
+var imageType = phantom.args[3] || 'gif';
+
 var pageSettings = ['javascriptEnabled', 'loadImages', 'localToRemoteUrlAccessEnabled', 'userAgent', 'userName', 'password'];
 
 var server, service;
@@ -64,7 +66,7 @@ service = server.listen(port, function(request, response) {
     return;
   }
   var url = request.headers.url;
-  var path = basePath + (request.headers.filename || (url.replace(new RegExp('https?://'), '').replace(/\//g, '.') + '.png'));
+  var path = basePath + (request.headers.filename || (url.replace(new RegExp('https?://'), '').replace(/\//g, '.') + '.' + imageType));
   var page = new WebPage();
   try {
     page.viewportSize = {

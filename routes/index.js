@@ -3,6 +3,7 @@ var join = require('path').join;
 var fs = require('fs');
 var path = require('path');
 var request = require('request');
+var validTypes = ['gif','png','jpg','pdf']
 
 module.exports = function(app) {
   var rasterizerService = app.settings.rasterizerService;
@@ -14,24 +15,30 @@ module.exports = function(app) {
       return res.redirect('/usage.html');
     }
 
+    var imageType = req.param('imageType') || 'gif';
+    if (validTypes.indexOf(imageType) == -1 ) {
+        imageType = 'gif';
+    }
+    console.log("Using imagetype %s", imageType);
+
     var url = utils.url(req.param('url'));
     // required options
     var options = {
       uri: 'http://localhost:' + rasterizerService.getPort() + '/',
       headers: { url: url }
     };
-    ['width', 'height', 'clipRect', 'javascriptEnabled', 'loadImages', 'localToRemoteUrlAccessEnabled', 'userAgent', 'userName', 'password'].forEach(function(name) {
+    ['width', 'height', 'clipRect', 'javascriptEnabled', 'loadImages', 'localToRemoteUrlAccessEnabled', 'userAgent', 'userName', 'password', 'imageType'].forEach(function(name) {
       if (req.param(name, false)) options.headers[name] = req.param(name);
     });
 
-    var filename = 'screenshot_' + utils.md5(url + JSON.stringify(options)) + '.png';
+    var filename = 'screenshot_' + utils.md5(url + JSON.stringify(options)) + '.' + imageType;
     options.headers.filename = filename;
 
     var filePath = join(rasterizerService.getPath(), filename);
 
     var callbackUrl = req.param('callback', false) ? utils.url(req.param('callback')) : false;
 
-    if (path.existsSync(filePath)) {
+    if (fs.existsSync(filePath)) {
       console.log('Request for %s - Found in cache', url);
       processImageUsingCache(filePath, res, callbackUrl, function(err) { if (err) next(err); });
       return;
