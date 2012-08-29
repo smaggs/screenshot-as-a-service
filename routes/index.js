@@ -2,14 +2,58 @@ var utils = require('../lib/utils');
 var join = require('path').join;
 var fs = require('fs');
 var path = require('path');
+var qs = require('querystring')
 var request = require('request');
 var validTypes = ['gif','png','jpg','pdf']
+
+var express = require('express');
 
 module.exports = function(app) {
   var rasterizerService = app.settings.rasterizerService;
   var fileCleanerService = app.settings.fileCleanerService;
 
+  app.use(express.bodyParser())
+  
   // routes
+  app.post('/', function(req, res, next) {
+    var imageType = req.param('imageType') || 'gif';
+    if (validTypes.indexOf(imageType) == -1 ) {
+        imageType = 'gif';
+    }
+
+    var html = req.body.html;
+    var preview = 'preview_' + utils.md5(JSON.stringify(html)) + '.html';
+    var previewPath = __dirname + '/../public/preview/' + preview;
+    fs.writeFileSync(previewPath, html);
+    fileCleanerService.addFile(previewPath);
+
+    var url = utils.url('localhost:' + app.address().port + '/preview/' + preview);
+    
+    var options = {
+      uri: 'http://localhost:' + rasterizerService.getPort() + '/',
+      headers: { url: url }
+    };
+        
+    ['width', 'height', 'clipRect', 'javascriptEnabled', 'loadImages', 'localToRemoteUrlAccessEnabled', 'userAgent', 'userName', 'password', 'imageType'].forEach(function(name) {
+      if (req.param(name, false)) options.headers[name] = req.param(name);
+    });
+        
+    var filename = 'screenshot_' + utils.md5(JSON.stringify(options)) + '.' + imageType;
+    options.headers.filename = filename;
+
+    var filePath = join(rasterizerService.getPath(), filename);
+
+    var callbackUrl = req.param('callback', false) ? utils.url(req.param('callback')) : false;
+
+    if (fs.existsSync(filePath)) {
+      console.log('Request for %s - Found in cache', url);
+      processImageUsingCache(filePath, res, callbackUrl, function(err) { if (err) next(err); });
+      return;
+    }
+    console.log('POST request - Rasterizing it');
+    processImageUsingRasterizer(options, filePath, res, callbackUrl, function(err) { if(err) next(err); });
+  });
+  
   app.get('/', function(req, res, next) {
     if (!req.param('url', false)) {
       return res.redirect('/usage.html');
@@ -19,7 +63,6 @@ module.exports = function(app) {
     if (validTypes.indexOf(imageType) == -1 ) {
         imageType = 'gif';
     }
-    console.log("Using imagetype %s", imageType);
 
     var url = utils.url(req.param('url'));
     // required options
@@ -82,14 +125,27 @@ module.exports = function(app) {
   }
 
   var callRasterizer = function(rasterizerOptions, callback) {
-    request.get(rasterizerOptions, function(error, response, body) {
-      if (error || response.statusCode != 200) {
-        console.log('Error while requesting the rasterizer: %s', error.message);
-        rasterizerService.restartService();
-        return callback(new Error(body));
-      }
-      callback(null);
-    });
+	if(rasterizerOptions.body) {
+		console.log("body: " + rasterizerOptions.body);
+	    request.post(rasterizerOptions, function(error, response, body) {
+	        if (error || response.statusCode != 200) {
+	          console.log('Error while requesting the rasterizer: %s %s', response.statusCode, error ? error.message : 'no message');
+	          rasterizerService.restartService();
+	          return callback(new Error(body));
+	        }
+	        callback(null);
+	      });
+	}
+	else {
+	    request.get(rasterizerOptions, function(error, response, body) {
+	      if (error || response.statusCode != 200) {
+	        console.log('Error while requesting the rasterizer: %s: %s', response.statusCode, error ? error.message : 'no message');
+	        rasterizerService.restartService();
+	        return callback(new Error(body));
+	      }
+	      callback(null);
+	    });
+    }
   }
 
   var postImageToUrl = function(imagePath, url, callback) {
